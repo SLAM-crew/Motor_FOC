@@ -78,8 +78,8 @@ typedef struct {
   int8_t system_state;
   int8_t mode;
   int8_t error_state;
-  int8_t speed_limit;
-  uint32_t speed;
+  int16_t speed_limit;
+  int32_t speed; 
   bool brake_active;
   bool field_weakening_enable;
   uint16_t adcData[16]; // buffer for ADC inputs (this array has max ADC channels possible). Position 0, 1, 2 and 3 are used by the motor

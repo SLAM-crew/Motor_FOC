@@ -379,8 +379,8 @@ int32_t speed_to_tics(uint8_t speed) {
   return WHEEL_CIRCUMFERENCE * 5 * 3600 / (6 * GEAR_RATIO * speed * 10);
 }
 
-int8_t tics_to_speed(uint32_t tics) {
-  return WHEEL_CIRCUMFERENCE * 5 * 3600 / (6 * GEAR_RATIO * tics * 10);;
+int32_t tics_to_speed(uint32_t tics) {
+  return WHEEL_CIRCUMFERENCE * 5 * 3600 / (6 * GEAR_RATIO * tics * 10);
 }
 
 void motor_autodetect() {

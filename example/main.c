@@ -252,13 +252,56 @@ void init_motor() {
   MSPublic.brake_active = false;
   MSPublic.i_q_setpoint_target = 0; // start at 0 until throttle value is readed
   MSPublic.speed = 128000;
-  MSPublic.speed_limit = 20; // 20km/h
+  MSPublic.speed_limit = 90; // 90km/h (??? - probably)
   MSPublic.phase_current_limit = PH_CURRENT_MAX;
   MSPublic.field_weakening_current_max = FIELD_WEAKNING_CURRENT_MAX;
   MSPublic.battery_voltage_min = BATTERYVOLTAGE_MIN;
 
   motor_init(&motor_config, &MSPublic);
 }
+
+//TODO: вынести PI-регуляторную логику на скорость в отдельный файл?
+typedef struct {
+  float Kp;       // Proportional gain
+  float Ki;       // Integral gain
+  float integral; // Integral accumulator
+  float output;   // Controller output
+  float out_max;  // Maximum output (current limit)
+  float out_min;  // Minimum output (current limit)
+} PI_SpeedController;
+
+void PI_Speed_Init(PI_SpeedController* pi, float Kp, float Ki, float max_output) {
+  pi->Kp = Kp;
+  pi->Ki = Ki;
+  pi->integral = 0.0f;
+  pi->output = 0.0f;
+  pi->out_max = max_output;
+  pi->out_min = -max_output;
+}
+
+
+float PI_Speed_Update(PI_SpeedController* pi, float setpoint, float measurement, float dt) {
+  float error = setpoint - measurement;
+  
+  // Proportional term
+  pi->output = pi->Kp * error;
+  
+  // Integral term with anti-windup
+  if (fabs(pi->output) < pi->out_max) {
+      pi->integral += pi->Ki * error * dt;
+  }
+  // Sum terms
+  pi->output += pi->integral;
+  // Clamp output
+  pi->output = fmaxf(pi->out_min, fminf(pi->out_max, pi->output));
+  
+  return pi->output;
+}
+
+int32_t speed_to_rpm(int32_t speed) {
+  return speed * 60 / 0.216 / M_PI / 3.6;
+}
+
 
 int main(void) {
   
@@ -280,10 +323,16 @@ int main(void) {
 
   init_motor();
 
-  // at begin, if throttle is at least halfway, do motor autodetect
-  if (MSPublic.adcData[THROTTLE_ADC_ARRAY_POSITION] > (THROTTLEOFFSET + ((THROTTLEMAX - THROTTLEOFFSET) >> 1))) {
-    motor_autodetect();
-  }
+  // DO a motor auto detect if only a wheel+controller run for the first time - it will load an 
+  // appropriate calculated constatns to the EEPROM directly
+  // motor_autodetect();
+  
+
+  float Kp = 6;
+  float Ki = 15;
+  PI_SpeedController pi;
+  PI_Speed_Init(&pi, Kp, Ki, PH_CURRENT_MAX);
+
 
   while (1) {
 
@@ -299,20 +348,20 @@ int main(void) {
       ui32_throttle_acc -= ui32_throttle_acc >> 4;
       ui32_throttle_acc += MSPublic.adcData[THROTTLE_ADC_ARRAY_POSITION];
       ui16_throttle = ui32_throttle_acc >> 4;
-
-      // map throttle to motor current
-      // check to see if throttle value is at least half of the expected offset, if not, probably the throttle is not connected 
-      if (ui16_throttle > (THROTTLEOFFSET >> 1)) {
-        MSPublic.i_q_setpoint_target = map(ui16_throttle, THROTTLEOFFSET, THROTTLEMAX, 0, PH_CURRENT_MAX);
-      } else {
-        MSPublic.i_q_setpoint_target = 0;
-      }
-
-      // DEBUG
+      
+      int setpoint = 500.0f; // in PRM
+      int32_t rpm_speed = speed_to_rpm(MSPublic.speed);
+      float measurement = rpm_speed;
+      float dt = 0.02f; // 20ms
+      MSPublic.i_q_setpoint_target = PI_Speed_Update(&pi, setpoint, measurement,  dt);
+      
+      //TODO: upgrade and make a full telemetry...
+      // DEBUG OUTPUT through UART
       static uint8_t debug_cnt = 0;
       if (++debug_cnt > 13) { // every 13 * 20 ms = 260ms
         debug_cnt = 0;
-        printf_("%d, %d\n", MSPublic.debug[0], MSPublic.debug[1] * CAL_I);
+        // printf_("%d, %d\n", MSPublic.debug[0], MSPublic.debug[1] * CAL_I);
+        printf_("RPM: %d, I: %d\n", rpm_speed, (MSPublic.debug[1] * CAL_I));
       }
     }
   }
