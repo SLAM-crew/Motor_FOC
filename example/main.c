@@ -287,7 +287,7 @@ float PI_Speed_Update(PI_SpeedController* pi, float setpoint, float measurement,
   pi->output = pi->Kp * error;
   
   // Integral term with anti-windup
-  if (fabs(pi->output) < pi->out_max) {
+  if (fabs(pi->output) < pi->out_max && measurement != 0) {
       pi->integral += pi->Ki * error * dt;
   }
   // Sum terms
@@ -302,7 +302,10 @@ int32_t speed_to_rpm(int32_t speed) {
   return speed * 60 / 0.216 / M_PI / 3.6;
 }
 
-
+float measurement;
+float Kp = 0.6;
+float Ki = 1;
+PI_SpeedController pi;
 int main(void) {
   
   // Reset of all peripherals, Initializes the Flash interface and the Systick
@@ -326,11 +329,6 @@ int main(void) {
   // DO a motor auto detect if only a wheel+controller run for the first time - it will load an 
   // appropriate calculated constatns to the EEPROM directly
   // motor_autodetect();
-  
-
-  float Kp = 6;
-  float Ki = 15;
-  PI_SpeedController pi;
   PI_Speed_Init(&pi, Kp, Ki, PH_CURRENT_MAX);
 
 
@@ -349,9 +347,9 @@ int main(void) {
       ui32_throttle_acc += MSPublic.adcData[THROTTLE_ADC_ARRAY_POSITION];
       ui16_throttle = ui32_throttle_acc >> 4;
       
-      int setpoint = 500.0f; // in PRM
+      int setpoint = 50.0f; // in PRM
       int32_t rpm_speed = speed_to_rpm(MSPublic.speed);
-      float measurement = rpm_speed;
+      measurement = rpm_speed;
       float dt = 0.02f; // 20ms
       MSPublic.i_q_setpoint_target = PI_Speed_Update(&pi, setpoint, measurement,  dt);
       
