@@ -13,7 +13,7 @@
 // motor current limit for regen in mA
 #define REGEN_CURRENT 10000
 
-#define RPM_MAX 900
+#define RPM_MAX 300
 
 // maximum current for field weakening in mA
 #define FIELD_WEAKNING_CURRENT_MAX 0 //max id
@@ -282,14 +282,15 @@ void PI_Init(PI_Controller* pi, float Kp, float Ki, float max_output) {
 }
 
 
-float PI_Update(PI_Controller* pi, float setpoint, float measurement, float dt) {
+float PI_Update(PI_Controller* pi, float setpoint, float measurement, float dt, float error_tolerance) {
   float error = setpoint - measurement;
+  if (fabs(error) < error_tolerance) error = 0;
   
   // Proportional term
   pi->output = pi->Kp * error;
   
   // Integral term with anti-windup
-  if (fabs(pi->output) < pi->out_max && measurement != 0) {
+  if (fabs(pi->output) < pi->out_max && MSPublic.battery_voltage > BATTERYVOLTAGE_MIN) {
       pi->integral += pi->Ki * error * dt;
   }
   // Sum terms
@@ -307,7 +308,7 @@ int32_t speed_to_rpm(int32_t speed) {
 float measurement_rpm, measurement_pos;
 float Kp_speed = 0.6;
 float Ki_speed = 1;
-float Kp_pos = 1;
+float Kp_pos = 0.8;
 float Ki_pos = 0;
 PI_Controller pi_speed;
 PI_Controller pi_pos;
@@ -347,13 +348,13 @@ int main(void) {
         (systick_cnt % 20) == 0) { // every 20ms
       systick_cnt_old = systick_cnt;
       
-      int setpoint_pos = 1080; // in deg
+      int setpoint_pos = 1000; // in deg
       float dt = 0.02f; // 20ms
       measurement_pos = MSPublic.mech_angle_accum / 2147483647.0f * 180  + MSPublic.full_rotations * 360.0f;
-      int setpoint_rpm = PI_Update(&pi_pos, setpoint_pos, measurement_pos, dt);
+      int setpoint_rpm = PI_Update(&pi_pos, setpoint_pos, measurement_pos, dt, 60);
       int32_t rpm_speed = speed_to_rpm(MSPublic.speed * MSPublic.rototation_direction);
       measurement_rpm = rpm_speed;
-      MSPublic.i_q_setpoint_target = PI_Update(&pi_speed, setpoint_rpm, measurement_rpm,  dt);
+      MSPublic.i_q_setpoint_target = PI_Update(&pi_speed, setpoint_rpm, measurement_rpm,  dt, 0);
       
       //TODO: upgrade and make a full telemetry...
       // DEBUG OUTPUT through UART

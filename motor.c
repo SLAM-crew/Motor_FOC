@@ -1594,10 +1594,15 @@ void update_mechanical_angle() {
   
   // Нормализуем накопленный механический угол в пределах Q31 представления (-2^31 .. 2^31-1).
   // Если значение выходит за пределы, корректируем накопление и обновляем счётчик полных оборотов.
-  if(prev_mech_angle > 0 &&MS.mech_angle_accum < 0 ) {
+  if(i8_recent_rotor_direction == 1 && prev_mech_angle > 0 && MS.mech_angle_accum < 0 ) {
     MS.full_rotations+= i8_recent_rotor_direction;            // уменьшаем счётчик оборотов
     // MS.mech_angle_accum += MECH_Q31_FULL;  // корректируем накопление, добавляя полный оборот
   }
+  else if(i8_recent_rotor_direction == -1 && prev_mech_angle < 0 && MS.mech_angle_accum > 0 ) {
+    MS.full_rotations+= i8_recent_rotor_direction;            // уменьшаем счётчик оборотов
+    // MS.mech_angle_accum += MECH_Q31_FULL;  // корректируем накопление, добавляя полный оборот
+  }
+
   // Аналогично, если предыдущий угол был < 0, а новый > 0 (при движении в обратную сторону)
   // else if(prev_mech_angle < 0 &&MS.mech_angle_accum > 0) {
   //     MS.full_rotations--;            // увеличиваем счётчик оборотов
