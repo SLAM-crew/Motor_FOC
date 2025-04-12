@@ -13,6 +13,8 @@
 // motor current limit for regen in mA
 #define REGEN_CURRENT 10000
 
+#define RPM_MAX 900
+
 // maximum current for field weakening in mA
 #define FIELD_WEAKNING_CURRENT_MAX 0 //max id
 
@@ -268,9 +270,9 @@ typedef struct {
   float output;   // Controller output
   float out_max;  // Maximum output (current limit)
   float out_min;  // Minimum output (current limit)
-} PI_SpeedController;
+} PI_Controller;
 
-void PI_Speed_Init(PI_SpeedController* pi, float Kp, float Ki, float max_output) {
+void PI_Init(PI_Controller* pi, float Kp, float Ki, float max_output) {
   pi->Kp = Kp;
   pi->Ki = Ki;
   pi->integral = 0.0f;
@@ -280,7 +282,7 @@ void PI_Speed_Init(PI_SpeedController* pi, float Kp, float Ki, float max_output)
 }
 
 
-float PI_Speed_Update(PI_SpeedController* pi, float setpoint, float measurement, float dt) {
+float PI_Update(PI_Controller* pi, float setpoint, float measurement, float dt) {
   float error = setpoint - measurement;
   
   // Proportional term
@@ -302,10 +304,14 @@ int32_t speed_to_rpm(int32_t speed) {
   return speed * 60 / 0.216 / M_PI / 3.6;
 }
 
-float measurement;
-float Kp = 0.6;
-float Ki = 1;
-PI_SpeedController pi;
+float measurement_rpm, measurement_pos;
+float Kp_speed = 0.6;
+float Ki_speed = 1;
+float Kp_pos = 1;
+float Ki_pos = 0;
+PI_Controller pi_speed;
+PI_Controller pi_pos;
+
 int main(void) {
   
   // Reset of all peripherals, Initializes the Flash interface and the Systick
@@ -329,7 +335,8 @@ int main(void) {
   // DO a motor auto detect if only a wheel+controller run for the first time - it will load an 
   // appropriate calculated constatns to the EEPROM directly
   // motor_autodetect();
-  PI_Speed_Init(&pi, Kp, Ki, PH_CURRENT_MAX);
+  PI_Init(&pi_speed, Kp_speed, Ki_speed, PH_CURRENT_MAX);
+  PI_Init(&pi_pos, Kp_pos, Ki_pos, RPM_MAX);
 
 
   while (1) {
@@ -339,19 +346,14 @@ int main(void) {
     if ((systick_cnt_old != systick_cnt) && // only at a change
         (systick_cnt % 20) == 0) { // every 20ms
       systick_cnt_old = systick_cnt;
-
-      // low pass filter torque signal
-      static uint32_t ui32_throttle_acc = 0;
-      uint16_t ui16_throttle;
-      ui32_throttle_acc -= ui32_throttle_acc >> 4;
-      ui32_throttle_acc += MSPublic.adcData[THROTTLE_ADC_ARRAY_POSITION];
-      ui16_throttle = ui32_throttle_acc >> 4;
       
-      int setpoint = 50.0f; // in PRM
-      int32_t rpm_speed = speed_to_rpm(MSPublic.speed);
-      measurement = rpm_speed;
+      int setpoint_pos = 1080; // in deg
       float dt = 0.02f; // 20ms
-      MSPublic.i_q_setpoint_target = PI_Speed_Update(&pi, setpoint, measurement,  dt);
+      measurement_pos = MSPublic.mech_angle_accum / 2147483647.0f * 180  + MSPublic.full_rotations * 360.0f;
+      int setpoint_rpm = PI_Update(&pi_pos, setpoint_pos, measurement_pos, dt);
+      int32_t rpm_speed = speed_to_rpm(MSPublic.speed * MSPublic.rototation_direction);
+      measurement_rpm = rpm_speed;
+      MSPublic.i_q_setpoint_target = PI_Update(&pi_speed, setpoint_rpm, measurement_rpm,  dt);
       
       //TODO: upgrade and make a full telemetry...
       // DEBUG OUTPUT through UART
@@ -359,7 +361,7 @@ int main(void) {
       if (++debug_cnt > 13) { // every 13 * 20 ms = 260ms
         debug_cnt = 0;
         // printf_("%d, %d\n", MSPublic.debug[0], MSPublic.debug[1] * CAL_I);
-        printf_("RPM: %d, I: %d\n", rpm_speed, (MSPublic.debug[1] * CAL_I));
+        printf_("RPM: %d, I: %d, angle: %d, rotations: %d\n", rpm_speed, (MSPublic.debug[1] * CAL_I), MSPublic.mech_angle_accum, MSPublic.full_rotations);
       }
     }
   }

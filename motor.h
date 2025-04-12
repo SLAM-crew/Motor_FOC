@@ -84,6 +84,9 @@ typedef struct {
   bool field_weakening_enable;
   uint16_t adcData[16]; // buffer for ADC inputs (this array has max ADC channels possible). Position 0, 1, 2 and 3 are used by the motor
   uint32_t debug[10];
+  int32_t mech_angle_accum;                    // аккумулятор механического угла (расширенный формат Q31)
+  int32_t full_rotations;
+  int8_t rototation_direction;
 } MotorStatePublic_t;
 
 enum angle_estimation {

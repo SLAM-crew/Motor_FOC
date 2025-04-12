@@ -20,6 +20,12 @@ extern void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
 // Square Root of 3
 #define _SQRT3  28  //1.73205081*16
 
+//
+#define Q31_HALF  (1LL << 31)     // 2^31, 180°
+#define Q31_FULL  (1LL << 32)     // 2^32, 360°
+#define MECH_Q31_FULL (Q31_FULL / 15)  // полный диапазон для механического угла
+#define MECH_Q31_HALF (Q31_HALF / 15) // половина диапазона для механического угла
+
 typedef struct {
   q31_t i_d;
   q31_t i_q;
@@ -40,6 +46,8 @@ typedef struct {
   enum angle_estimation angle_estimation;
   int16_t KV_detect_flag;
   bool hall_angle_detect_flag;
+  int32_t mech_angle_accum;                    // аккумулятор механического угла (расширенный формат Q31)
+  int32_t full_rotations;
 } MotorState_t;
 
 typedef struct
@@ -161,6 +169,10 @@ MotorConfig_t* p_MotorConfig;
 
 uint8_t number_of_adc_channels_used = 0;
 uint8_t adc_channels_used[16]; // 16 is the max ADC channels possible
+
+int32_t q31_rotorposition_absolute_prev = 0;   // предыдущее значение электрического угла (Q31)
+int32_t prev_mech_angle = 0;
+int32_t delta_mech_angle = 0;
 
 void _motor_error_handler(char *file, int line) {
   __disable_irq();
@@ -637,6 +649,9 @@ void motor_slow_loop(MotorStatePublic_t* motorStatePublic) {
   uint32_SPEEDx100_cumulated -= uint32_SPEEDx100_cumulated >> SPEEDFILTER;
   uint32_SPEEDx100_cumulated += internal_tics_to_speedx100(ui16_halls_tim2tics_filtered);
 
+  MSP->mech_angle_accum = MS.mech_angle_accum;
+  MSP->full_rotations = MS.full_rotations;
+
   // low pass filter next signals
   static q31_t iq_cum = 0;
   iq_cum -= iq_cum >> 8;
@@ -695,6 +710,7 @@ void motor_slow_loop(MotorStatePublic_t* motorStatePublic) {
 
     // calculate wheel speed
     MSP->speed = tics_to_speed(ui16_halls_tim2tics_filtered);
+    MSP->rototation_direction = i8_recent_rotor_direction;
 
     // see if PWM should be disable
     if (MS.i_q_setpoint == 0 && (uint16_full_rotation_counter > 7999 || uint16_half_rotation_counter > 7999)) {
@@ -1552,6 +1568,47 @@ void FOC_calculation(int16_t int16_i_as, int16_t int16_i_bs, q31_t q31_teta, Mot
   svpwm(q31_u_alpha, q31_u_beta);
 }
 
+void update_mechanical_angle() {
+  // Вычисляем разность между новым и предыдущим электрическими углами.
+  // При этом учитываем, что измерение представлено циклически.
+  int32_t delta_elec = (int32_t) q31_rotorposition_absolute - q31_rotorposition_absolute_prev;
+  
+  // Коррекция перехода через границу: если разность больше половины диапазона,
+  // значит произошёл wrap-around и нужно скорректировать разность.
+  if(delta_elec > Q31_HALF) {
+      delta_elec -= (int32_t)Q31_FULL;  // если прыжок положительный — уменьшаем на 2^32
+  } else if(delta_elec < -Q31_HALF) {
+      delta_elec += (int32_t)Q31_FULL;  // если прыжок отрицательный — прибавляем 2^32
+  }
+  
+  // Преобразуем разность электрического угла в механический.
+  // Согласно условию: 360° электрического => 24° механического, то есть коэффициент преобразования:
+  // mech_delta = delta_elec / 15.
+  // Деление выполняется целочисленно (если требуется сохранить больший уровень точности, можно использовать округление).
+  int32_t delta_mech = delta_elec / 15;
+  
+  // Накапливаем механический угол.
+  
+  MS.mech_angle_accum += delta_mech;
+  delta_mech_angle = (int32_t) (MS.mech_angle_accum - prev_mech_angle);
+  
+  // Нормализуем накопленный механический угол в пределах Q31 представления (-2^31 .. 2^31-1).
+  // Если значение выходит за пределы, корректируем накопление и обновляем счётчик полных оборотов.
+  if(prev_mech_angle > 0 &&MS.mech_angle_accum < 0 ) {
+    MS.full_rotations+= i8_recent_rotor_direction;            // уменьшаем счётчик оборотов
+    // MS.mech_angle_accum += MECH_Q31_FULL;  // корректируем накопление, добавляя полный оборот
+  }
+  // Аналогично, если предыдущий угол был < 0, а новый > 0 (при движении в обратную сторону)
+  // else if(prev_mech_angle < 0 &&MS.mech_angle_accum > 0) {
+  //     MS.full_rotations--;            // увеличиваем счётчик оборотов
+  //     // MS.mech_angle_accum -= MECH_Q31_FULL;  // корректируем накопление, вычитая полный оборот
+  // }
+  
+  prev_mech_angle = MS.mech_angle_accum;
+  // Обновляем предыдущее значение электрического угла для следующего вычисления
+  q31_rotorposition_absolute_prev = q31_rotorposition_absolute;
+}
+
 // injected ADC
 void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc) {
 // DEBUG_ON;
@@ -1633,6 +1690,7 @@ void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc) {
 
       MS.system_state = SixStep;
     }
+    update_mechanical_angle();
   }
 
   __enable_irq(); //EXIT CRITICAL SECTION!!!!!!!!!!!!!!
