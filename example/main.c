@@ -284,7 +284,7 @@ void PI_Init(PI_Controller* pi, float Kp, float Ki, float max_output) {
 
 float PI_Update(PI_Controller* pi, float setpoint, float measurement, float dt, float error_tolerance) {
   float error = setpoint - measurement;
-  if (fabs(error) < error_tolerance) error = 0;
+  // if (fabs(error) < error_tolerance) return 0.0;
   
   // Proportional term
   pi->output = pi->Kp * error;
@@ -292,9 +292,9 @@ float PI_Update(PI_Controller* pi, float setpoint, float measurement, float dt, 
   // Integral term with anti-windup
   if (fabs(pi->output) < pi->out_max && MSPublic.battery_voltage > BATTERYVOLTAGE_MIN) {
       pi->integral += pi->Ki * error * dt;
+      // Sum terms
+      pi->output += pi->integral;
   }
-  // Sum terms
-  pi->output += pi->integral;
   // Clamp output
   pi->output = fmaxf(pi->out_min, fminf(pi->out_max, pi->output));
   
@@ -306,10 +306,11 @@ int32_t speed_to_rpm(int32_t speed) {
 }
 
 float measurement_rpm, measurement_pos;
-float Kp_speed = 0.6;
-float Ki_speed = 1;
+float error_pos;
+float Kp_speed = 1.0;
+float Ki_speed = 0;
 float Kp_pos = 0.8;
-float Ki_pos = 0;
+float Ki_pos = 0.2;
 PI_Controller pi_speed;
 PI_Controller pi_pos;
 
@@ -339,7 +340,7 @@ int main(void) {
   PI_Init(&pi_speed, Kp_speed, Ki_speed, PH_CURRENT_MAX);
   PI_Init(&pi_pos, Kp_pos, Ki_pos, RPM_MAX);
 
-
+  int setpoint_pos = 0;
   while (1) {
 
     //slow loop process, every 20ms
@@ -347,11 +348,13 @@ int main(void) {
     if ((systick_cnt_old != systick_cnt) && // only at a change
         (systick_cnt % 20) == 0) { // every 20ms
       systick_cnt_old = systick_cnt;
-      
-      int setpoint_pos = 1000; // in deg
+
+      if (MSPublic.battery_voltage > BATTERYVOLTAGE_MIN) setpoint_pos += 12; // in deg
+      if (setpoint_pos > 3000) setpoint_pos = 3000;
       float dt = 0.02f; // 20ms
       measurement_pos = MSPublic.mech_angle_accum / 2147483647.0f * 180  + MSPublic.full_rotations * 360.0f;
-      int setpoint_rpm = PI_Update(&pi_pos, setpoint_pos, measurement_pos, dt, 60);
+      error_pos = setpoint_pos - measurement_pos;
+      int setpoint_rpm = PI_Update(&pi_pos, setpoint_pos, measurement_pos, dt, 0);
       int32_t rpm_speed = speed_to_rpm(MSPublic.speed * MSPublic.rototation_direction);
       measurement_rpm = rpm_speed;
       MSPublic.i_q_setpoint_target = PI_Update(&pi_speed, setpoint_rpm, measurement_rpm,  dt, 0);
