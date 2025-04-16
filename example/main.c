@@ -22,6 +22,10 @@
 #pragma GCC push_options
 #pragma GCC optimize ("O0")
 
+#define MAX_STR_LEN 12 // Maximum digits for int32 (+ sign and null terminator)
+char uart_str[MAX_STR_LEN];
+volatile bool data_received = false;
+
 UART_HandleTypeDef huart3;
 
 DMA_HandleTypeDef hdma_usart3_tx;
@@ -30,6 +34,15 @@ DMA_HandleTypeDef hdma_usart3_rx;
 MotorStatePublic_t MSPublic;
 
 volatile uint32_t systick_cnt = 0;
+
+// UART Receive Complete Callback
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
+    if(huart == &huart3) {  // Check it's your UART
+        data_received = true;
+        // Restart reception for next value
+        HAL_UART_Receive_IT(&huart3, uart_str, MAX_STR_LEN);
+    }
+}
 
 // every 1ms
 void UserSysTickHandler(void) {
@@ -186,6 +199,11 @@ void assert_failed(uint8_t *file, uint32_t line)
 void exti_callback() {
 
 }
+// Initialize reception in main()
+void init_uart_reception() {
+    data_received = false;
+    HAL_UART_Receive_IT(&huart3, uart_str, MAX_STR_LEN);
+}
 
 void init_motor() {
 
@@ -305,11 +323,11 @@ int32_t speed_to_rpm(int32_t speed) {
   return speed * 60 / 0.216 / M_PI / 3.6;
 }
 
-float measurement_rpm, measurement_pos;
+int32_t measurement_rpm, measurement_pos;
 float error_pos;
-float Kp_speed = 1.0;
-float Ki_speed = 0;
-float Kp_pos = 0.8;
+float Kp_speed = 0.6 * 12.5;
+float Ki_speed = 1.0 * 12.5;
+float Kp_pos = 0.5;
 float Ki_pos = 0.4;
 PI_Controller pi_speed;
 PI_Controller pi_pos;
@@ -334,6 +352,8 @@ int main(void) {
 
   init_motor();
 
+  init_uart_reception();
+
   // DO a motor auto detect if only a wheel+controller run for the first time - it will load an 
   // appropriate calculated constatns to the EEPROM directly
   // motor_autodetect();
@@ -341,7 +361,7 @@ int main(void) {
   PI_Init(&pi_pos, Kp_pos, Ki_pos, RPM_MAX);
 
   int setpoint_pos = 0;
-  int tolerance_pos = 0;
+  int tolerance_pos = 30;
   while (1) {
 
     //slow loop process, every 20ms
@@ -350,14 +370,17 @@ int main(void) {
         (systick_cnt % 20) == 0) { // every 20ms
       systick_cnt_old = systick_cnt;
 
-      if (MSPublic.battery_voltage > BATTERYVOLTAGE_MIN) setpoint_pos += 12; // in deg
+      // if (MSPublic.battery_voltage > BATTERYVOLTAGE_MIN) setpoint_pos += 12; // in deg
 
-      tolerance_pos = 0;
-      if (setpoint_pos > 3000) {
-        setpoint_pos = 3000;
-        tolerance_pos = 30;
+      // tolerance_pos = 0;
+      // if (setpoint_pos >= 3000) { 
+      //   setpoint_pos = 3000;
+      //   tolerance_pos = 30;
+      // }
+      if(data_received) {
+          setpoint_pos = atol(uart_str);
+          data_received = false;
       }
-      
       float dt = 0.02f; // 20ms
       measurement_pos = MSPublic.mech_angle_accum / 2147483647.0f * 180  + MSPublic.full_rotations * 360.0f;
       error_pos = setpoint_pos - measurement_pos;
@@ -372,7 +395,8 @@ int main(void) {
       if (++debug_cnt > 13) { // every 13 * 20 ms = 260ms
         debug_cnt = 0;
         // printf_("%d, %d\n", MSPublic.debug[0], MSPublic.debug[1] * CAL_I);
-        printf_("RPM: %d, I: %d, angle: %d, rotations: %d\n", rpm_speed, (MSPublic.debug[1] * CAL_I), MSPublic.mech_angle_accum, MSPublic.full_rotations);
+        // printf_("RPM: %d, I: %d, angle: %d, rotations: %d\n", rpm_speed, (MSPublic.debug[1] * CAL_I), MSPublic.mech_angle_accum, MSPublic.full_rotations);
+        printf_("setpoint_pos: %d\n", setpoint_pos);
       }
     }
   }
