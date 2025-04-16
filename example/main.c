@@ -24,6 +24,7 @@
 
 #define MAX_STR_LEN 12 // Maximum digits for int32 (+ sign and null terminator)
 char uart_str[MAX_STR_LEN];
+uint8_t rx_byte; // Store received byte
 volatile bool data_received = false;
 volatile uint8_t received_length = 0; // Add this to track length
 
@@ -39,11 +40,7 @@ volatile uint32_t systick_cnt = 0;
 
 // UART Receive Complete Callback
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
-    static uint8_t rx_byte; // Store received byte
     if(huart == &huart3) {  // Check it's your UART
-      // Read the received byte
-      rx_byte = (uint8_t)(huart->Instance->DR); // Direct register read
-      
       // Check for termination character (e.g., newline)
       if(rx_byte == '\n' || rx_byte == '\r' || received_length >= MAX_STR_LEN-1) {
           uart_str[received_length] = '\0'; // Null-terminate
@@ -218,8 +215,7 @@ void exti_callback() {
 void init_uart_reception() {
     received_length = 0;
     data_received = false;
-    uint8_t dummy;
-    HAL_UART_Receive_IT(&huart3, &dummy, 1); // Start receiving single bytes
+    HAL_UART_Receive_IT(&huart3, &rx_byte, 1); // Start receiving single bytes
 }
 
 void init_motor() {
@@ -413,7 +409,8 @@ int main(void) {
         debug_cnt = 0;
         // printf_("%d, %d\n", MSPublic.debug[0], MSPublic.debug[1] * CAL_I);
         // printf_("RPM: %d, I: %d, angle: %d, rotations: %d\n", rpm_speed, (MSPublic.debug[1] * CAL_I), MSPublic.mech_angle_accum, MSPublic.full_rotations);
-        printf_("setpoint_pos: %d\n", setpoint_pos);
+        // printf_("setpoint_pos: %d\n", setpoint_pos);
+        printf_("setpoint_pos: %s\n", uart_str);
       }
     }
   }
