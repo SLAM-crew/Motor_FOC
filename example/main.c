@@ -336,12 +336,14 @@ int32_t speed_to_rpm(int32_t speed) {
   return speed * 60 / 0.216 / M_PI / 3.6;
 }
 
-int32_t measurement_rpm, measurement_pos;
+int32_t measurement_rpm, measurement_pos; 
+int32_t setpoint_pos = 0;
+int32_t setpoint_rpm = 0;
 float error_pos;
-float Kp_speed = 0.6 * 12.5;
-float Ki_speed = 1.0 * 12.5;
-float Kp_pos = 0.5;
-float Ki_pos = 0.4;
+float Kp_speed = 0.6 * 6.0;
+float Ki_speed = 1.0 * 6.0;
+float Kp_pos = 0.6;
+float Ki_pos = 0.5;
 PI_Controller pi_speed;
 PI_Controller pi_pos;
 
@@ -373,8 +375,9 @@ int main(void) {
   PI_Init(&pi_speed, Kp_speed, Ki_speed, PH_CURRENT_MAX);
   PI_Init(&pi_pos, Kp_pos, Ki_pos, RPM_MAX);
 
-  int setpoint_pos = 0;
-  int tolerance_pos = 30;
+  
+  // int tolerance_pos = 30;
+  int tolerance_pos = 0;
   while (1) {
 
     //slow loop process, every 20ms
@@ -397,7 +400,7 @@ int main(void) {
       float dt = 0.02f; // 20ms
       measurement_pos = MSPublic.mech_angle_accum / 2147483647.0f * 180  + MSPublic.full_rotations * 360.0f;
       error_pos = setpoint_pos - measurement_pos;
-      int setpoint_rpm = PI_Update(&pi_pos, setpoint_pos, measurement_pos, dt, tolerance_pos);
+      setpoint_rpm = PI_Update(&pi_pos, setpoint_pos, measurement_pos, dt, tolerance_pos);
       int32_t rpm_speed = speed_to_rpm(MSPublic.speed * MSPublic.rototation_direction);
       measurement_rpm = rpm_speed;
       MSPublic.i_q_setpoint_target = PI_Update(&pi_speed, setpoint_rpm, measurement_rpm,  dt, 0);
@@ -405,13 +408,12 @@ int main(void) {
       //TODO: upgrade and make a full telemetry...
       // DEBUG OUTPUT through UART
       static uint8_t debug_cnt = 0;
-      if (++debug_cnt > 13) { // every 13 * 20 ms = 260ms
-        debug_cnt = 0;
-        // printf_("%d, %d\n", MSPublic.debug[0], MSPublic.debug[1] * CAL_I);
-        // printf_("RPM: %d, I: %d, angle: %d, rotations: %d\n", rpm_speed, (MSPublic.debug[1] * CAL_I), MSPublic.mech_angle_accum, MSPublic.full_rotations);
-        // printf_("setpoint_pos: %d\n", setpoint_pos);
-        printf_("setpoint_pos: %s\n", uart_str);
-      }
+      // if (++debug_cnt > 13) { // every 13 * 20 ms = 260ms
+      //   debug_cnt = 0;
+      //   // printf_("%d, %d\n", MSPublic.debug[0], MSPublic.debug[1] * CAL_I);
+      //   // printf_("RPM: %d, I: %d, angle: %d, rotations: %d\n", rpm_speed, (MSPublic.debug[1] * CAL_I), MSPublic.mech_angle_accum, MSPublic.full_rotations);
+      //   printf_("setpoint_pos: %d\n", setpoint_pos);
+      // }
     }
   }
 }
