@@ -340,8 +340,8 @@ int32_t measurement_rpm, measurement_pos;
 int32_t setpoint_pos = 0;
 int32_t setpoint_rpm = 0;
 float error_pos;
-float Kp_speed = 0.6 * 6.0;
-float Ki_speed = 1.0 * 6.0;
+float Kp_speed = 0.6 * 1.0;
+float Ki_speed = 1.0 * 1.0;
 float Kp_pos = 0.6;
 float Ki_pos = 0.5;
 PI_Controller pi_speed;
@@ -405,15 +405,16 @@ int main(void) {
       measurement_rpm = rpm_speed;
       MSPublic.i_q_setpoint_target = PI_Update(&pi_speed, setpoint_rpm, measurement_rpm,  dt, 0);
       
-      //TODO: upgrade and make a full telemetry...
+      //TODO: upgrade and make a full telemetry... (setpoint_pos, setpoint_rpm, meausurement_rpm, measurement_pos)
       // DEBUG OUTPUT through UART
       static uint8_t debug_cnt = 0;
-      // if (++debug_cnt > 13) { // every 13 * 20 ms = 260ms
-      //   debug_cnt = 0;
-      //   // printf_("%d, %d\n", MSPublic.debug[0], MSPublic.debug[1] * CAL_I);
-      //   // printf_("RPM: %d, I: %d, angle: %d, rotations: %d\n", rpm_speed, (MSPublic.debug[1] * CAL_I), MSPublic.mech_angle_accum, MSPublic.full_rotations);
-      //   printf_("setpoint_pos: %d\n", setpoint_pos);
-      // }
+      if (++debug_cnt > 5) { // every 5 * 20 ms = 100ms
+        debug_cnt = 0;
+        printf_("%d;%d;%d;%d\n", setpoint_rpm, setpoint_pos, measurement_rpm, measurement_pos);
+        // printf_("%d, %d\n", MSPublic.debug[0], MSPublic.debug[1] * CAL_I);
+        // printf_("RPM: %d, I: %d, angle: %d, rotations: %d\n", rpm_speed, (MSPublic.debug[1] * CAL_I), MSPublic.mech_angle_accum, MSPublic.full_rotations);
+        // printf_("setpoint_pos: %d\n", setpoint_pos);
+      }
     }
   }
 }
