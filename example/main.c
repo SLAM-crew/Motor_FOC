@@ -342,8 +342,8 @@ int32_t setpoint_rpm = 0;
 float error_pos;
 float Kp_speed = 0.6 * 1.0;
 float Ki_speed = 1.0 * 1.0;
-float Kp_pos = 0.6;
-float Ki_pos = 0.5;
+float Kp_pos = 0.5;
+float Ki_pos = 0.2;
 PI_Controller pi_speed;
 PI_Controller pi_pos;
 
