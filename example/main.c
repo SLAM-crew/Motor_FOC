@@ -12,11 +12,14 @@
 
 // motor current limit for regen in mA
 #define REGEN_CURRENT 10000
-
 #define RPM_MAX 300
 
 // maximum current for field weakening in mA
 #define FIELD_WEAKNING_CURRENT_MAX 0 //max id
+
+#define HEADER 0xAB
+#define TERMINATOR 0xBE
+
 
 // not need to optimize the motor_slow_loop
 #pragma GCC push_options
@@ -37,23 +40,32 @@ DMA_HandleTypeDef hdma_usart3_rx;
 MotorStatePublic_t MSPublic;
 
 volatile uint32_t systick_cnt = 0;
-
+// 0: waiting for first byte, 1: receiving data
+static uint8_t header_state = 0; 
 // UART Receive Complete Callback
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
-    if(huart == &huart3) {  // Check it's your UART
-      // Check for termination character (e.g., newline)
-      if(rx_byte == '\n' || rx_byte == '\r' || received_length >= MAX_STR_LEN-1) {
-          uart_str[received_length] = '\0'; // Null-terminate
-          data_received = true;
-          received_length = 0; // Reset for next message
+  if (huart == &huart3) {
+      switch (header_state) {
+          case 0:
+              if (rx_byte == 0xBA) {
+                  header_state = 1;
+              }
+              break;
+          case 1:
+              // Receiving data bytes
+              if (rx_byte == '\n' || rx_byte == '\r' || received_length >= MAX_STR_LEN - 1) {
+                  uart_str[received_length] = '\0'; // Null-terminate the string
+                  data_received = true;
+                  received_length = 0;
+                  header_state = 0; // Reset for next message
+              } else {
+                  uart_str[received_length++] = rx_byte;
+              }
+              break;
       }
-      else {
-          uart_str[received_length++] = rx_byte; // Store character
-      }
-      
-      // Restart interrupt-based reception
+      // Always restart UART receive interrupt for the next byte
       HAL_UART_Receive_IT(&huart3, &rx_byte, 1);
-    }
+  }
 }
 
 // every 1ms
