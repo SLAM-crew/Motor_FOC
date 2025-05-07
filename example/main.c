@@ -17,9 +17,7 @@
 // maximum current for field weakening in mA
 #define FIELD_WEAKNING_CURRENT_MAX 0 //max id
 
-#define HEADER 0xAB
-#define TERMINATOR 0xBE
-
+char header = 'z';
 
 // not need to optimize the motor_slow_loop
 #pragma GCC push_options
@@ -47,7 +45,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
   if (huart == &huart3) {
       switch (header_state) {
           case 0:
-              if (rx_byte == 0xBA) {
+              if (rx_byte == header) {
                   header_state = 1;
               }
               break;
@@ -351,13 +349,19 @@ int32_t speed_to_rpm(int32_t speed) {
 int32_t measurement_rpm, measurement_pos; 
 int32_t setpoint_pos = 0;
 int32_t setpoint_rpm = 0;
-float error_pos;
-float Kp_speed = 0.6 * 1.0;
-float Ki_speed = 1.0 * 1.0;
-float Kp_pos = 0.5;
-float Ki_pos = 0.2;
+float Kp_speed = 0.6 * 10;
+float Ki_speed = 1.0 * 10;
+float Kp_pos = 0.4;
+float Ki_pos = 0.0;
 PI_Controller pi_speed;
 PI_Controller pi_pos;
+
+typedef enum {
+  STATE_MOVING,
+  STATE_WAITING
+} SystemState;
+
+SystemState currentState = STATE_WAITING;
 
 int main(void) {
   
@@ -387,9 +391,6 @@ int main(void) {
   PI_Init(&pi_speed, Kp_speed, Ki_speed, PH_CURRENT_MAX);
   PI_Init(&pi_pos, Kp_pos, Ki_pos, RPM_MAX);
 
-  
-  // int tolerance_pos = 30;
-  int tolerance_pos = 0;
   while (1) {
 
     //slow loop process, every 20ms
@@ -398,24 +399,30 @@ int main(void) {
         (systick_cnt % 20) == 0) { // every 20ms
       systick_cnt_old = systick_cnt;
 
-      // if (MSPublic.battery_voltage > BATTERYVOLTAGE_MIN) setpoint_pos += 12; // in deg
-
-      // tolerance_pos = 0;
-      // if (setpoint_pos >= 3000) { 
-      //   setpoint_pos = 3000;
-      //   tolerance_pos = 30;
-      // }
       if(data_received) {
+        if (uart_str[0] == 's') {
+          currentState = STATE_MOVING;
+        } else if (uart_str[0] == 'f') {
+          currentState = STATE_WAITING;
+        } else {
           setpoint_pos = atol(uart_str);
-          data_received = false;
+        }
+        data_received = false;
       }
       float dt = 0.02f; // 20ms
       measurement_pos = MSPublic.mech_angle_accum / 2147483647.0f * 180  + MSPublic.full_rotations * 360.0f;
-      error_pos = setpoint_pos - measurement_pos;
-      setpoint_rpm = PI_Update(&pi_pos, setpoint_pos, measurement_pos, dt, tolerance_pos);
       int32_t rpm_speed = speed_to_rpm(MSPublic.speed * MSPublic.rototation_direction);
       measurement_rpm = rpm_speed;
-      MSPublic.i_q_setpoint_target = PI_Update(&pi_speed, setpoint_rpm, measurement_rpm,  dt, 0);
+
+      switch (currentState) {
+        case STATE_MOVING:
+          setpoint_rpm = PI_Update(&pi_pos, setpoint_pos, measurement_pos, dt, 0);
+          MSPublic.i_q_setpoint_target = PI_Update(&pi_speed, setpoint_rpm, measurement_rpm,  dt, 0);
+          break;
+        case STATE_WAITING:
+          MSPublic.i_q_setpoint_target = 0.0;
+          break;
+      }
       
       //TODO: upgrade and make a full telemetry... (setpoint_pos, setpoint_rpm, meausurement_rpm, measurement_pos)
       // DEBUG OUTPUT through UART
